@@ -6,6 +6,10 @@ import plotly.graph_objects as go
 import plotly
 import random
 import sys
+import copy
+import chart_studio
+import chart_studio.plotly as studio
+import chart_studio.tools as tools
 
 class RubiksCube:
 	def __init__(self, length=3, distance=0, seed=None):
@@ -76,6 +80,8 @@ class RubiksCube:
 					tuple([2, 2, True]): ['back', -1], tuple([2, 2, False]): ['back', 1]}
 
 		self.random_position(distance, seed)
+		api_key = "MuCqsAcD75SBG4BSEuQx"
+		tools.set_credentials_file(username='curiouscalvin', api_key=api_key)
 
 	def build_face_to_cartestian(self):
 		'''
@@ -125,58 +131,18 @@ class RubiksCube:
 				self.face_to_cartesian[face_coords] = xyz_coords
 				self.centroid_vertices[tuple(xyz_coords)] = vertices_from_center(xyz_coords, self.face_radius, plane)
 
-	def animate(self, title=None):
-		'''
-		Creates a 3D plot of the cube in plotly. 
-		'''
-
-		fig = go.Figure(data=[
-		    go.Mesh3d(
-		        x=self.x_dom,
-		        y=self.y_dom,
-		        z=self.z_dom,
-		        name=str(title)
-		    	)
-			])
-
-		for face, i in self.face_indices.items():
-			for row, col in self.grid:
-				face_coords = tuple([i, row, col])
-				cart_coords = self.face_to_cartesian[face_coords]
-				color = self.label_colors[self.faces[i, row, col]]
-				vertices = self.centroid_vertices[tuple(cart_coords)]
-				x, y, z = vertices[:, 0], vertices[:, 1], vertices[:, 2]
-				fig.add_trace(go.Scatter3d(x=x, y=y, z=z,
-									       surfacecolor = color,
-									       surfaceaxis = self.face_to_axis[face], 
-										   mode = "markers+text", 
-										   marker = dict(
-            								size = 10,
-            								color = color,
-            								symbol = 'square',
-            								line = dict(width=10, color = 'black')
-        								   )))
-
-		fig.update_layout(
-			showlegend=False,
-			title = {'text': "Rubik's Cube Solver"},
-			scene = dict(xaxis = dict(title= 'Width', showticklabels=True),
-	        yaxis = dict(title = 'Depth', showticklabels=True),
-	        zaxis = dict(title = 'Height', showticklabels=True))
-		    )
-		fig.update_scenes(xaxis_autorange='reversed')
-		fig.show()
-
-	def build_step(self, index, num_moves):
-		step = dict(method = 'update', 
-					args = [{"visible": [False] * self.total_squares * num_moves},
-					              dict(mode= 'immediate',
-                                   frame = dict(duration=40, redraw= True),
-                                   transition = dict(duration=25))]
-                              ,
-					label = f"Move {index}" if index != 0 else "Start")
-		for i in range(index * self.total_squares, (index + 1) * self.total_squares):
-			step['args'][0]['visible'][i] = True
+	def build_step(self, frame, frame_index):
+		frame_args = dict(
+						mode = "animation",
+					    fromcurrent = True,
+						frame = dict(duration=0),
+						transition = dict(duration=90, easing = "linear")
+						)
+		step = dict(
+			args = [dict(name=[frame.name]), frame_args],
+			label = f"Move {frame_index}" if frame_index >= 1 else "Start",
+			method = "animate"
+			)
 
 		return step
 
@@ -186,18 +152,16 @@ class RubiksCube:
 		Used by the solve method to produce a slideshow of the cube's solution.
 		'''
 
-		fig = go.Figure(data=[
-		    go.Mesh3d(
-		        x=self.x_dom,
-		        y=self.y_dom,
-		        z=self.z_dom
-		    	)
-			])
 		self.total_squares = 54
 		num_moves = len(moves)
 		steps = []
+		frames = []
+		initial_frame = None
+
 		for move_ind, move in enumerate(moves):
 			self.make_move(move)
+			traces = []
+
 			for face, i in self.face_indices.items():
 				for row, col in self.grid:
 					face_coords = tuple([i, row, col])
@@ -205,31 +169,82 @@ class RubiksCube:
 					color = self.label_colors[self.faces[i, row, col]]
 					vertices = self.centroid_vertices[tuple(cart_coords)]
 					x, y, z = vertices[:, 0], vertices[:, 1], vertices[:, 2]
-					fig.add_trace(go.Scatter3d(x=x, y=y, z=z,
+					trace = go.Scatter3d(x=x, y=y, z=z,
 											  surfacecolor = color, 
 											  surfaceaxis = self.face_to_axis[face], 
 											  mode = "markers+text", 
 						 					  marker=dict(
-	            								size=0,
-	            								color = color,
-	            								symbol = 'square',
-	            								line=dict(width=10, color = 'black')
-	        								)))
-			step = self.build_step(move_ind, num_moves)
+												size=0,
+												color = color,
+												symbol = 'square',
+												line=dict(width=10, color = 'black')
+	        								))
+					traces.append(trace)
+
+			frame = go.Frame(data=traces, name=str(move_ind))
+			fig = go.Figure(data=traces)
+			axis_args = dict(range=[-3,6],
+				nticks=10,
+				showticklabels=False,
+				showgrid=False,
+				autorange=False)
+			fig.update_layout(
+						  showlegend=False,
+						  scene_aspectmode="cube",
+						  title = dict(text= "Rubik's Cube Solver",
+						  			   xanchor='center',
+						  			   x=0.5,
+						  			   y=0.9,
+						  			   yanchor='top',
+						  			   font=dict(size=24)),
+            			  scene = dict(
+                				xaxis = dict(**axis_args, title = 'Width'),
+                				yaxis = dict(**axis_args, title = 'Depth'), 
+                				zaxis = dict(**axis_args, title = 'Height')
+                				)),
+			fig.show()
+			initial_frame = copy.deepcopy(traces) if not initial_frame else initial_frame
+			frames.append(frame)
+			step = self.build_step(frame, move_ind)
 			steps.append(step)
-		
-		sliders = [dict(active=17, 
-                				transition= dict(duration= 0 ), steps=steps)]
-		fig.layout.update(sliders=sliders)
+
+		fig = go.Figure(data=initial_frame,
+			 			frames=frames)
+		sliders = [
+			{
+			"pad": {"b": 10, "t": 60},
+			"len": 0.9,
+			"x": 0.1,
+			"y": 0,
+			"steps": steps}]
+		axis_args = dict(range=[-3,6],
+						 nticks=10,
+						 showticklabels=False,
+					     showgrid=False,
+					     autorange=False)
+
+		fig.update_layout(sliders=sliders,
+						  showlegend=False,
+						  scene_aspectmode="cube",
+						  title = dict(text= "Rubik's Cube Solver"),
+            			  scene = dict(
+                				xaxis = dict(**axis_args, title = 'Width'),
+                				yaxis = dict(**axis_args, title = 'Depth'), 
+                				zaxis = dict(**axis_args, title = 'Height')
+                				),
+            	updatemenus=[dict(type="buttons",
+                          		  buttons=[dict(label="Play",
+                                  method="animate",
+                                  args=[None]),
+                                  dict(label="Pause",
+                                        method="animate",
+                                        args=[None,
+                               {"frame": {"duration": 0, "redraw": False},
+                                "mode": "immediate",
+                                "transition": {"duration": 0}}])])])
+		studio.plot(fig, filename="file", auto_open=True)
 		fig.show()
-		fig.update_layout(
-			showlegend=False,
-			title = {'text': "Rubik's Cube Solver"},
-			scene = dict(xaxis = dict(title= 'width', showticklabels=True, range = [-3, 6]),
-	        yaxis = dict(title = 'depth', showticklabels=True, range = [-3, 6]),
-	        zaxis = dict(title = 'height', showticklabels=True, range = [-3, 6]))
-		    )
-		fig.show()
+
 
 	def rotate_face(self, face, direction):
 		face_index = self.face_indices[face]
